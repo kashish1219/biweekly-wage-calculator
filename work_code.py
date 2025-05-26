@@ -23,7 +23,6 @@ def calculate_day_pay(start_time, end_time, km_driven, misc_pay, regular_rate, o
         end_dt += timedelta(days=1)
     total_hours = (end_dt - start_dt).total_seconds() / 3600
 
-    # Weekend: all hours overtime
     if day_name in ["Saturday", "Sunday"]:
         reg_hours = 0
         ot_hours = total_hours
@@ -31,18 +30,15 @@ def calculate_day_pay(start_time, end_time, km_driven, misc_pay, regular_rate, o
         regular_start = datetime.combine(datetime.today(), datetime.strptime("08:00", "%H:%M").time())
         regular_end = datetime.combine(datetime.today(), datetime.strptime("17:00", "%H:%M").time())
 
-        reg_hours = 0
-        ot_hours = 0
-        current = start_dt
-        while current < end_dt:
-            next_hour = current + timedelta(hours=1)
-            if next_hour > end_dt:
-                next_hour = end_dt
-            if regular_start <= current < regular_end:
-                reg_hours += (next_hour - current).total_seconds() / 3600
-            else:
-                ot_hours += (next_hour - current).total_seconds() / 3600
-            current = next_hour
+        regular_work_start = max(start_dt, regular_start)
+        regular_work_end = min(end_dt, regular_end)
+
+        if regular_work_end > regular_work_start:
+            reg_hours = (regular_work_end - regular_work_start).total_seconds() / 3600
+        else:
+            reg_hours = 0
+
+        ot_hours = total_hours - reg_hours
 
     bonus = BONUS_FOR_12H if total_hours >= 12 else 0
     km_pay = km_driven * km_rate
@@ -70,31 +66,51 @@ def input_week_data(week_number):
     week_data = []
     for day in days:
         st.subheader(day)
+        
+        # Did you work this day?
+        worked = st.checkbox(f"Did you work on {day} (Week {week_number})?", value=True, key=f"w{week_number}_{day}_worked")
+
         col1, col2 = st.columns(2)
-        with col1:
-            start_time = st.time_input(
-                f"{day} Start Time (Week {week_number})",
-                value=datetime.strptime("00:00", "%H:%M").time(),
-                key=f"w{week_number}_{day}_start"
+        if worked:
+            with col1:
+                start_time = st.time_input(
+                    f"{day} Start Time (Week {week_number})",
+                    value=datetime.strptime("08:00", "%H:%M").time(),
+                    key=f"w{week_number}_{day}_start"
+                )
+            with col2:
+                end_time = st.time_input(
+                    f"{day} End Time (Week {week_number})",
+                    value=datetime.strptime("17:00", "%H:%M").time(),
+                    key=f"w{week_number}_{day}_end"
+                )
+            km_driven = st.number_input(
+                f"{day} Kilometers Driven (Week {week_number})",
+                min_value=0.0,
+                value=0.0,
+                key=f"w{week_number}_{day}_km"
             )
-        with col2:
-            end_time = st.time_input(
-                f"{day} End Time (Week {week_number})",
-                value=datetime.strptime("00:00", "%H:%M").time(),
-                key=f"w{week_number}_{day}_end"
+            misc_pay = st.number_input(
+                f"{day} Miscellaneous Pay ($) (Week {week_number})",
+                min_value=0.0,
+                value=0.0,
+                key=f"w{week_number}_{day}_misc"
             )
-        km_driven = st.number_input(
-            f"{day} Kilometers Driven (Week {week_number})",
-            min_value=0.0,
-            value=0.0,
-            key=f"w{week_number}_{day}_km"
-        )
-        misc_pay = st.number_input(
-            f"{day} Miscellaneous Pay ($) (Week {week_number})",
-            min_value=0.0,
-            value=0.0,
-            key=f"w{week_number}_{day}_misc"
-        )
+        else:
+            st.info(f"No work recorded for {day}. All inputs disabled.")
+            # Set default values when not worked
+            start_time = datetime.strptime("00:00", "%H:%M").time()
+            end_time = datetime.strptime("00:00", "%H:%M").time()
+            km_driven = 0.0
+            misc_pay = 0.0
+            
+            # Disable inputs by rendering but making them disabled
+            with col1:
+                st.time_input(f"{day} Start Time (Week {week_number})", value=start_time, key=f"w{week_number}_{day}_start", disabled=True)
+            with col2:
+                st.time_input(f"{day} End Time (Week {week_number})", value=end_time, key=f"w{week_number}_{day}_end", disabled=True)
+            st.number_input(f"{day} Kilometers Driven (Week {week_number})", value=km_driven, key=f"w{week_number}_{day}_km", disabled=True)
+            st.number_input(f"{day} Miscellaneous Pay ($) (Week {week_number})", value=misc_pay, key=f"w{week_number}_{day}_misc", disabled=True)
 
         day_pay = calculate_day_pay(start_time, end_time, km_driven, misc_pay,
                                     regular_rate, overtime_rate, km_rate, day)
@@ -151,7 +167,6 @@ def create_hours_report(week1_data, week2_data):
                 elif misc_value > 0:
                     misc_str = f"{misc_value:.2f}"
                 elif data["Total Hours"] >= 12:
-                    # misc is zero but hours >=12, so just 35
                     misc_str = "35"
 
                 row = {
